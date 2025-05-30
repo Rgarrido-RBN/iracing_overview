@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iRacing Fuel Calculator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1);}
+        h1 { color: #333; text-align: center; }
+        .client-section { border: 2px solid #007bff; border-radius: 8px; margin-bottom: 25px; padding: 15px; background: #f9f9ff;}
+        .client-title { font-size: 1.2em; font-weight: bold; margin-bottom: 10px; color: #007bff;}
+        .status { text-align: center; margin-bottom: 20px; padding: 10px; border-radius: 5px;}
+        .online { background-color: #d4edda; color: #155724;}
+        .offline { background-color: #f8d7da; color: #721c24;}
+        .data-card { margin-bottom: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 5px;}
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 8px;}
+        .data-label { font-weight: bold; flex: 1;}
+        .data-value { flex: 1; text-align: right;}
+        .highlight { font-weight: bold; color: #007bff;}
+        .warning { color: #dc3545;}
+        .history-container { margin-top: 20px;}
+        table { width: 100%; border-collapse: collapse;}
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd;}
+        th { background-color: #f2f2f2;}
+        .tire-grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 5px; margin-top: 10px;}
+        .tire { border: 1px solid #ddd; padding: 8px; text-align: center;}
+        .tire.selected { background-color: #d4edda; border-color: #c3e6cb; font-weight: bold;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>iRacing Fuel Calculator (Multi-Cliente)</h1>
+        <div id="clients-root"></div>
+    </div>
+    <script>
+        const socket = io(); // This automatically connects to the server that serves the page
+        let clientsData = {};
+
+        function renderClients() {
+            const root = document.getElementById('clients-root');
+            root.innerHTML = '';
+            const ids = Object.keys(clientsData);
+            if (ids.length === 0) {
+                root.innerHTML = '<div class="status offline">Esperando datos de clientes...</div>';
+                return;
+            }
+            ids.forEach(client_id => {
+                const data = clientsData[client_id];
+                const section = document.createElement('div');
+                section.className = 'client-section';
+                section.innerHTML = `
+                    <div class="client-title">Cliente: <span>${data.client_id || client_id}</span></div>
+                    <div class="status ${data.is_on_track ? 'online' : 'offline'}">
+                        ${data.is_on_track ? 'Conectado a iRacing - En pista' : (data.status_message || 'No conectado o fuera de pista')}
+                    </div>
+                    <div class="data-card" style="${data.is_on_track ? '' : 'display:none;'}">
+                        <div class="data-row"><span class="data-label">Vuelta actual:</span><span class="data-value">${data.current_lap || '-'}</span></div>
+                        <div class="data-row"><span class="data-label">Incidentes:</span><span class="data-value">${data.incident_count === undefined ? 0 : data.incident_count}</span></div>
+                    </div>
+                    <div class="data-card" style="${data.is_on_track ? '' : 'display:none;'}">
+                        <h3>Fuel Information</h3>
+                        <div class="data-row"><span class="data-label">Gasolina restante:</span><span class="data-value">${data.current_fuel === undefined ? '-' : data.current_fuel.toFixed(2)} L</span></div>
+                        <div class="data-row"><span class="data-label">Consumo medio/Lap:</span><span class="data-value">${data.avg_consumption > 0 ? data.avg_consumption.toFixed(2) + ' L/lap' : 'Calculando...'}</span></div>
+                        <div class="data-row"><span class="data-label">Consumo ultima vuelta:</span><span class="data-value">${data.fuel_used_last_lap === undefined ? '-' : data.fuel_used_last_lap.toFixed(2)} L</span></div>
+                        <div class="data-row">
+                            <span class="data-label">Vueltas de gasolina restantes:</span>
+                            <span class="data-value${data.laps_remaining_with_fuel < 3 ? ' warning' : ''}">
+                                ${data.avg_consumption > 0 && data.laps_remaining_with_fuel !== undefined ? data.laps_remaining_with_fuel.toFixed(1) + ' laps' : 'Calculando...'}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="data-card" style="${data.is_on_track ? '' : 'display:none;'}">
+                        <h3>Fuel Strategy</h3>
+                        <div class="data-row"><span class="data-label">Vueltas totales de Carrera:</span><span class="data-value">${data.laps_to_go > 0 ? data.laps_to_go + ' laps' : 'Unknown'}</span></div>
+                        <div class="data-row"><span class="data-label">Gasolina necesaria:</span><span class="data-value">${data.fuel_needed > 0 ? data.fuel_needed.toFixed(2) + ' L' : 'Calculando...'}</span></div>
+                        <div class="data-row"><span class="data-label">Fuel in Box:</span><span class="data-value highlight">${data.fuel_in_box === undefined ? 0 : data.fuel_in_box.toFixed(2)} L</span></div>
+                    </div>
+                    <div class="data-card" style="${data.is_on_track ? '' : 'display:none;'}">
+                        <h3>Cambio de neumaticos</h3>
+                        <div class="tire-grid">
+                            <div class="tire${data.tires_to_change && data.tires_to_change.left_front ? ' selected' : ''}">Delantera Izquierda</div>
+                            <div class="tire${data.tires_to_change && data.tires_to_change.right_front ? ' selected' : ''}">Delantera derecha</div>
+                            <div class="tire${data.tires_to_change && data.tires_to_change.left_rear ? ' selected' : ''}">Trasera izquierda</div>
+                            <div class="tire${data.tires_to_change && data.tires_to_change.right_rear ? ' selected' : ''}">Trasera derecha</div>
+                        </div>
+                    </div>
+                    <div class="history-container" style="${data.is_on_track && data.consumption_history && data.consumption_history.length > 0 ? '' : 'display:none;'}">
+                        <h3>Fuel Consumption History</h3>
+                        <table>
+                            <thead>
+                                <tr><th>Lap</th><th>Fuel Used</th></tr>
+                            </thead>
+                            <tbody>
+                                ${
+                                    (data.consumption_history || []).map((consumption, idx) => {
+                                        const lapNumber = (data.current_lap - data.consumption_history.length) + idx;
+                                        return `<tr><td>${lapNumber}</td><td>${consumption.toFixed(2)} L</td></tr>`;
+                                    }).join('')
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                root.appendChild(section);
+            });
+        }
+
+        socket.on('update_data', function(payload) {
+            console.log("Received update_data:", payload);
+            if (!payload.client_id) return;
+            clientsData[payload.client_id] = payload;
+            renderClients();
+        });
+
+        socket.on('all_clients_data', function(allData) {
+            console.log("Received all_clients_data:", allData);
+            clientsData = allData;
+            renderClients();
+        });
+
+        socket.on('connect', function() {
+            console.log("Socket connected!");
+        });
+        
+        socket.on('disconnect', function() {
+            console.log("Socket disconnected!");
+            // Optionally, you can update the UI to show a disconnected state for all clients
+            // or a general server disconnected message.
+            // const root = document.getElementById('clients-root');
+            // root.innerHTML = '<div class="status offline">Disconnected from server. Attempting to reconnect...</div>';
+        });
+
+        socket.on('connect_error', function(err) {
+            console.error('Connection error:', err);
+            const root = document.getElementById('clients-root');
+            root.innerHTML = '<div class="status offline">Connection error - Please check if the server is running and refresh.</div>';
+        });
+
+        renderClients(); // Initial render (will likely show "Esperando datos...")
+    </script>
+</body>
+</html>

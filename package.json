@@ -1,0 +1,19 @@
+{
+  "name": "iracing-fuel-calculator-js",
+  "version": "1.0.0",
+  "description": "iRacing Fuel Calculator in Node.js",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "author": "",
+  "license": "ISC"
+}
